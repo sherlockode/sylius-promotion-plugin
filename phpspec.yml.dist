@@ -1,0 +1,4 @@
+suites:
+    main:
+        namespace: Sherlockode\SyliusPromotionPlugin
+        psr4_prefix: Sherlockode\SyliusPromotionPlugin

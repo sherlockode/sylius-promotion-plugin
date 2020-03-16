@@ -1,0 +1,8 @@
+sherlockode:
+  item_percentage_discount_threshold:
+    label: Discount (stage)
+    threshold: Threshold
+  free_threshold:
+    label: Free product
+    threshold: Threshold
+    quantity: Free quantity

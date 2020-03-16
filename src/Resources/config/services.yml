@@ -1,0 +1,40 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  sherlockode.manager.promotion_manager:
+    class: Sherlockode\SyliusPromotionPlugin\Manager\PromotionManager
+
+  Sherlockode\SyliusPromotionPlugin\Manager\PromotionManager: '@sherlockode.manager.promotion_manager'
+
+  sylius.promotion_action.unit_percentage_discount_threshold:
+    class: Sherlockode\SyliusPromotionPlugin\Promotion\Action\UnitPercentageDiscountThresholdPromotionActionCommand
+    arguments:
+      - '@sylius.factory.adjustment'
+      - '@sylius.promotion_filter.product'
+    tags:
+      - { name: sylius.promotion_action, type: unit_percentage_discount_threshold, label: sherlockode.item_percentage_discount_threshold.label, form_type: Sherlockode\SyliusPromotionPlugin\Form\Type\ChannelBasedUnitPercentageDiscountThresholdConfigurationType }
+
+  sylius.promotion_action.free_threshold:
+    class: Sherlockode\SyliusPromotionPlugin\Promotion\Action\FreeThresholdPromotionActionCommand
+    arguments:
+      $adjustmentFactory: '@sylius.factory.adjustment'
+      $productFilter: '@sylius.promotion_filter.product'
+      $orderItemFactory: '@sylius.factory.order_item'
+      $itemQuantityModifier: '@sylius.order_item_quantity_modifier'
+    tags:
+      - { name: sylius.promotion_action, type: free_threshold, label: sherlockode.free_threshold.label, form_type: Sherlockode\SyliusPromotionPlugin\Form\Type\ChannelBasedFreeThresholdConfigurationType }
+
+  Sherlockode\SyliusPromotionPlugin\Form\Type\UnitPercentageDiscountThresholdConfigurationType:
+    arguments:
+      - '@sylius.repository.product'
+    tags:
+      - { name: form.type }
+
+  Sherlockode\SyliusPromotionPlugin\Form\Type\FreeThresholdConfigurationType:
+    arguments:
+      - '@sylius.repository.product'
+    tags:
+      - { name: form.type }

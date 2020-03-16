@@ -1,0 +1,7 @@
+sherlockode:
+    item_percentage_discount_threshold:
+      threshold_min: Minimal threshold is 1
+    free_threshold:
+      threshold_min: Minimal threshold is 1
+      quantity_min: Minimal quantity is 1
+
