@@ -2,7 +2,7 @@
     "name": "sherlockode/sylius-promotion-plugin",
     "type": "sylius-plugin",
     "keywords": ["sylius", "sylius-plugin"],
-    "description": "Acme example plugin for Sylius.",
+    "description": "Sherlockode Sylius promotion plugin",
     "license": "MIT",
     "require": {
         "php": "^7.2",
@@ -43,10 +43,5 @@
     },
     "autoload-dev": {
         "classmap": ["tests/Application/Kernel.php"]
-    },
-    "extra": {
-        "branch-alias": {
-            "dev-master": "1.6-dev"
-        }
     }
 }
