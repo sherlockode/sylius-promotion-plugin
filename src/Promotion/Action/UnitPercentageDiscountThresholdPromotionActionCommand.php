@@ -22,16 +22,30 @@ class UnitPercentageDiscountThresholdPromotionActionCommand extends UnitDiscount
     private $productFilter;
 
     /**
+     * @var FilterInterface
+     */
+    private $taxonFilter;
+
+    /**
+     * @var FilterInterface
+     */
+    private $priceRangeFilter;
+
+    /**
      * @param FactoryInterface $adjustmentFactory
      * @param FilterInterface  $productFilter
      */
     public function __construct(
         FactoryInterface $adjustmentFactory,
-        FilterInterface $productFilter
+        FilterInterface $productFilter,
+        FilterInterface $taxonFilter,
+        FilterInterface $priceRangeFilter
     ) {
         parent::__construct($adjustmentFactory);
 
         $this->productFilter = $productFilter;
+        $this->taxonFilter = $taxonFilter;
+        $this->priceRangeFilter = $priceRangeFilter;
     }
 
     /**
@@ -51,21 +65,12 @@ class UnitPercentageDiscountThresholdPromotionActionCommand extends UnitDiscount
             return false;
         }
 
-        // Retrieve products on which we should apply the rule
-        $promotionRuleProducts = [];
-        foreach ($promotion->getRules() as $rule) {
-            if ($rule->getType() === ContainsProductRuleChecker::TYPE) {
-                $promotionRuleProducts[] = $rule->getConfiguration()['product_code'];
-            }
-        }
-
-        if (count($promotionRuleProducts) === 0) {
-            return false;
-        }
-
-        $productFilter = [];
-        $productFilter['filters']['products_filter']['products'] = $promotionRuleProducts;
-        $filteredItems = $this->productFilter->filter($subject->getItems()->toArray(), $productFilter);
+        $filteredItems = $this->priceRangeFilter->filter(
+            $subject->getItems()->toArray(),
+            array_merge(['channel' => $subject->getChannel()], $configuration[$channelCode])
+        );
+        $filteredItems = $this->productFilter->filter($filteredItems, $configuration[$channelCode]);
+        $filteredItems = $this->taxonFilter->filter($filteredItems, $configuration[$channelCode]);
 
         if (empty($filteredItems)) {
             return false;

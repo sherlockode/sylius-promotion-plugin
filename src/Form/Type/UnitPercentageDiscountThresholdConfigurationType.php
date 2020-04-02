@@ -2,6 +2,7 @@
 
 namespace Sherlockode\SyliusPromotionPlugin\Form\Type;
 
+use Sylius\Bundle\PromotionBundle\Form\Type\PromotionFilterCollectionType;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\IntegerType;
 use Symfony\Component\Form\Extension\Core\Type\PercentType;
@@ -30,6 +31,11 @@ class UnitPercentageDiscountThresholdConfigurationType extends AbstractType
                         'groups' => ['sylius'],
                     ]),
                 ],
+            ])
+            ->add('filters', PromotionFilterCollectionType::class, [
+                'label' => false,
+                'required' => false,
+                'currency' => $options['currency'],
             ])
             ->add('percentage', PercentType::class, [
                 'label' => 'sylius.form.promotion_action.percentage_discount_configuration.percentage',

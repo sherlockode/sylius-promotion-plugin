@@ -3,6 +3,7 @@
 namespace Sherlockode\SyliusPromotionPlugin\Form\Type;
 
 use Sylius\Bundle\ProductBundle\Form\Type\ProductAutocompleteChoiceType;
+use Sylius\Bundle\PromotionBundle\Form\Type\PromotionFilterCollectionType;
 use Sylius\Bundle\ResourceBundle\Form\DataTransformer\ResourceToIdentifierTransformer;
 use Sylius\Component\Resource\Repository\RepositoryInterface;
 use Symfony\Component\Form\AbstractType;
@@ -46,6 +47,11 @@ class FreeThresholdConfigurationType extends AbstractType
                         'groups' => ['sylius'],
                     ]),
                 ],
+            ])
+            ->add('filters', PromotionFilterCollectionType::class, [
+                'label' => false,
+                'required' => false,
+                'currency' => $options['currency'],
             ])
             ->add('quantity', IntegerType::class, [
                 'label' => 'sherlockode.free_threshold.quantity',
