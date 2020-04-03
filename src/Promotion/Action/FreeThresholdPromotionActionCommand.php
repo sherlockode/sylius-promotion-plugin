@@ -2,15 +2,14 @@
 
 namespace Sherlockode\SyliusPromotionPlugin\Promotion\Action;
 
-use Sherlockode\SyliusPromotionPlugin\Manager\PromotionManager;
 use Doctrine\Common\Persistence\ObjectManager;
+use Sherlockode\SyliusPromotionPlugin\Manager\PromotionManager;
 use Sylius\Component\Core\Distributor\IntegerDistributorInterface;
-use Sylius\Component\Core\Distributor\ProportionalIntegerDistributorInterface;
 use Sylius\Component\Core\Model\OrderInterface;
 use Sylius\Component\Core\Model\OrderItemInterface;
 use Sylius\Component\Core\Model\Product;
+use Sylius\Component\Core\Model\ProductVariantInterface;
 use Sylius\Component\Core\Promotion\Action\UnitDiscountPromotionActionCommand;
-use Sylius\Component\Core\Promotion\Checker\Rule\ContainsProductRuleChecker;
 use Sylius\Component\Core\Promotion\Filter\FilterInterface;
 use Sylius\Component\Order\Modifier\OrderItemQuantityModifierInterface;
 use Sylius\Component\Promotion\Model\PromotionInterface;
@@ -53,19 +52,25 @@ class FreeThresholdPromotionActionCommand extends UnitDiscountPromotionActionCom
     private $promotionManager;
 
     /**
-     * @var ProportionalIntegerDistributorInterface
+     * @var FilterInterface
      */
-    private $proportionalIntegerDistributor;
+    private $taxonFilter;
 
     /**
-     * @param FactoryInterface                        $adjustmentFactory
-     * @param FilterInterface                         $productFilter
-     * @param ObjectManager                           $om
-     * @param FactoryInterface                        $orderItemFactory
-     * @param OrderItemQuantityModifierInterface      $itemQuantityModifier
-     * @param IntegerDistributorInterface             $integerDistributor
-     * @param PromotionManager                        $promotionManager
-     * @param ProportionalIntegerDistributorInterface $proportionalIntegerDistributor
+     * @var FilterInterface
+     */
+    private $priceRangeFilter;
+
+    /**
+     * @param FactoryInterface                   $adjustmentFactory
+     * @param FilterInterface                    $productFilter
+     * @param ObjectManager                      $om
+     * @param FactoryInterface                   $orderItemFactory
+     * @param OrderItemQuantityModifierInterface $itemQuantityModifier
+     * @param IntegerDistributorInterface        $integerDistributor
+     * @param PromotionManager                   $promotionManager
+     * @param FilterInterface                    $taxonFilter
+     * @param FilterInterface                    $priceRangeFilter
      */
     public function __construct(
         FactoryInterface $adjustmentFactory,
@@ -75,7 +80,8 @@ class FreeThresholdPromotionActionCommand extends UnitDiscountPromotionActionCom
         OrderItemQuantityModifierInterface $itemQuantityModifier,
         IntegerDistributorInterface $integerDistributor,
         PromotionManager $promotionManager,
-        ProportionalIntegerDistributorInterface $proportionalIntegerDistributor
+        FilterInterface $taxonFilter,
+        FilterInterface $priceRangeFilter
     ) {
         parent::__construct($adjustmentFactory);
 
@@ -85,7 +91,8 @@ class FreeThresholdPromotionActionCommand extends UnitDiscountPromotionActionCom
         $this->itemQuantityModifier = $itemQuantityModifier;
         $this->integerDistributor = $integerDistributor;
         $this->promotionManager = $promotionManager;
-        $this->proportionalIntegerDistributor = $proportionalIntegerDistributor;
+        $this->taxonFilter = $taxonFilter;
+        $this->priceRangeFilter = $priceRangeFilter;
     }
 
     /**
@@ -106,119 +113,93 @@ class FreeThresholdPromotionActionCommand extends UnitDiscountPromotionActionCom
             return false;
         }
 
-        // Retrieve products that condition the rule
-        $promotionRuleProducts = [];
-        foreach ($promotion->getRules() as $rule) {
-            if ($rule->getType() === ContainsProductRuleChecker::TYPE) {
-                $promotionRuleProducts[] = $rule->getConfiguration()['product_code'];
-            }
-        }
-
-        if (count($promotionRuleProducts) === 0) {
-            return false;
-        }
-
-        $productFilter = [];
-        $productFilter['filters']['products_filter']['products'] = $promotionRuleProducts;
-        $filteredItems = $this->productFilter->filter($subject->getItems()->toArray(), $productFilter);
+        $filteredItems = $this->priceRangeFilter->filter(
+            $subject->getItems()->toArray(),
+            array_merge(['channel' => $subject->getChannel()], $configuration[$channelCode])
+        );
+        $filteredItems = $this->productFilter->filter($filteredItems, $configuration[$channelCode]);
+        $filteredItems = $this->taxonFilter->filter($filteredItems, $configuration[$channelCode]);
 
         if (empty($filteredItems)) {
             return false;
         }
 
         // Check if products conditioning the rule are in the correct quantity in the cart
-        $thresholdFilteredItems = [];
+        $totalQty = 0;
         foreach ($filteredItems as $item) {
-            if ($item->getQuantity() < $configuration[$channelCode]['threshold']) {
-                continue;
-            }
-            $thresholdFilteredItems[] = $item;
+            $totalQty += $item->getQuantity();
         }
 
-        if (count($thresholdFilteredItems) === 0) {
+        if ($totalQty < $configuration[$channelCode]['threshold'] ) {
             return false;
         }
 
         $qtyToOffer = $configuration[$channelCode]['quantity'];
         $productToOffer = $configuration[$channelCode]['product_code'];
 
-        // Retrieve products on which we should apply the rule
         $productFilter = [];
         $productFilter['filters']['products_filter']['products'] = [$productToOffer];
         $filteredItems = $this->productFilter->filter($subject->getItems()->toArray(), $productFilter);
 
-        // Product to offer is not in cart yet
-        // Get first variant from product and add it to cart
-        if (empty($filteredItems)) {
-            $orderItem = $this->createItem($subject, $productToOffer);
-            if ($orderItem === null) {
-                return false;
-            }
-
-            $this->updateItemQuantity($orderItem, $qtyToOffer);
-            $subject->addItem($orderItem);
-            $this->promotionManager->setShouldRelaunchPromotionProcessor(true);
-
+        $variantToOffer = $this->getVariant($productToOffer);
+        if (null === $variantToOffer) {
             return false;
         }
 
-        $itemsToOffer = [];
-        $qties = [];
-        $totalQty = 0;
-        foreach ($filteredItems as $item) {
-            $itemsToOffer[] = [
-                'item' => $item,
-                'qty' => $item->getQuantity(),
-            ];
-            $qties[] = $item->getQuantity();
-            $totalQty += $item->getQuantity();
+        $variantItem = null;
+        /** @var OrderItemInterface $filteredItem */
+        foreach ($filteredItems as $filteredItem) {
+            if ($variantToOffer->getId() === $filteredItem->getVariant()->getId()) {
+                $variantItem = $filteredItem;
+                break;
+            }
         }
 
-        if ($totalQty < $qtyToOffer) {
+        // Product to offer is not in cart yet or variant is not in cart yet
+        if (null === $variantItem) {
+            $variantItem = $this->orderItemFactory->createNew();
+            /** @var OrderItemInterface $variantItem */
+            $variantItem->setVariant($variantToOffer);
+
+            $this->updateItemQuantity($variantItem, $qtyToOffer);
+            $subject->addItem($variantItem);
+            $this->promotionManager->setShouldRelaunchPromotionProcessor(true);
+        }
+
+        if ($variantItem->getQuantity() < $qtyToOffer) {
             // Product to offer is in cart, but missing qties to offer
             // Get first matching item and add missing qty
-            $itemData = $itemsToOffer[0];
-            $missingQty = $qtyToOffer - $totalQty;
-            $this->updateItemQuantity($itemData['item'], $itemData['qty'] + $missingQty);
+            $missingQty = $qtyToOffer - $variantItem->getQuantity();
+            $this->updateItemQuantity($variantItem, $variantItem->getQuantity() + $missingQty);
             $this->promotionManager->setShouldRelaunchPromotionProcessor(true);
 
             return false;
         }
 
-        $promotionAmount = $itemsToOffer[0]['item']->getUnitPrice() * $qtyToOffer;
-        $distributedAmounts = $this->proportionalIntegerDistributor->distribute($qties, $promotionAmount);
-
-        foreach ($itemsToOffer as $itemKey => $itemData) {
-            $item = $itemData['item'];
-            $promotionAmount = 0;
-            if (isset($distributedAmounts[$itemKey])) {
-                $promotionAmount = $distributedAmounts[$itemKey];
+        $promotionAmount = $variantItem->getUnitPrice() * $qtyToOffer;
+        $splitPromotionAmounts = $this->integerDistributor->distribute($promotionAmount, $variantItem->getQuantity());
+        $i = 0;
+        foreach ($variantItem->getUnits() as $unit) {
+            if (0 === $splitPromotionAmounts[$i]) {
+                continue;
             }
-            $splitPromotionAmounts = $this->integerDistributor->distribute($promotionAmount, $item->getQuantity());
-            $i = 0;
-            foreach ($item->getUnits() as $unit) {
-                if (0 === $splitPromotionAmounts[$i]) {
-                    continue;
-                }
-                $this->addAdjustmentToUnit($unit, $splitPromotionAmounts[$i], $promotion);
-                $i++;
-            }
+            $this->addAdjustmentToUnit($unit, $splitPromotionAmounts[$i], $promotion);
+            $i++;
         }
 
         return true;
     }
 
     /**
-     * @param PromotionSubjectInterface $subject
-     * @param string                    $productCode
+     * @param $productCode
      *
-     * @return null|OrderItemInterface
+     * @return ProductVariantInterface|null
      */
-    private function createItem(PromotionSubjectInterface $subject, $productCode): ?OrderItemInterface
+    private function getVariant($productCode): ?ProductVariantInterface
     {
         /** @var Product $product */
         $product = $this->om->getRepository(Product::class)->findOneBy([
-            'code' => $productCode
+            'code' => $productCode,
         ]);
 
         if ($product === null) {
@@ -229,17 +210,7 @@ class FreeThresholdPromotionActionCommand extends UnitDiscountPromotionActionCom
             return null;
         }
 
-        $variant = $product->getVariants()->first();
-        if ($variant === null) {
-            return null;
-        }
-
-        $orderItem = $this->orderItemFactory->createNew();
-
-        /** @var OrderItemInterface $orderItem */
-        $orderItem->setVariant($variant);
-
-        return $orderItem;
+        return $product->getVariants()->first();
     }
 
     /**
